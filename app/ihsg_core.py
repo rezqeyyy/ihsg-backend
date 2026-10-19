@@ -489,14 +489,17 @@ def diebold_mariano(y, p1, p2, h=1):
 # ---------------------------------------------------------------------------
 def explain(model, X: pd.DataFrame):
     """Local TreeSHAP attributions -> (DataFrame, base value)."""
-    if type(model).__name__ == "XGBRegressor":
-        import xgboost as xgb
-        c = model.get_booster().predict(xgb.DMatrix(X), pred_contribs=True)
-        return pd.DataFrame(c[:, :-1], index=X.index, columns=X.columns), float(c[0, -1])
-    import shap
-    ex = shap.TreeExplainer(model)
-    sv = ex.shap_values(X, check_additivity=False)
-    return pd.DataFrame(sv, index=X.index, columns=X.columns), float(np.ravel(ex.expected_value)[0])
+    if type(model).__name__ == "VotingRegressor":
+        # ensemble: SHAP values are additive, so the ensemble attribution is the
+        # weighted sum of each member's attribution (exact, not an approximation)
+        w = np.asarray(model.weights if model.weights is not None else [1.0] * len(model.estimators_), float)
+        w = w / w.sum()
+        total, base = None, 0.0
+        for wi, est in zip(w, model.estimators_):
+            c, b = explain(est, X)
+            total = c * wi if total is None else total + c * wi
+            base += wi * b
+        return total, base
 
 
 def sentiment_score(x, meta):

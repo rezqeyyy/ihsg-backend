@@ -1,8 +1,9 @@
 {
-  "created_at": "2026-10-19T07:29:36",
+  "created_at": "2026-10-19T13:40:21",
   "primary_config": "A",
-  "champion": "RandomForest",
+  "champion": "Ensemble",
   "tree_models": [
+    "Ensemble",
     "RandomForest",
     "XGBoost"
   ],
@@ -23,6 +24,14 @@
       "reg_lambda": 2.427442676727245
     }
   },
+  "ensemble": {
+    "method": "weighted average (VotingRegressor)",
+    "weights": {
+      "RandomForest": 0.7,
+      "XGBoost": 0.3
+    },
+    "weight_selected_by": "min mean CV RMSE of out-of-fold predictions 2012-2023, w in [0.2, 0.8]"
+  },
   "cv_rmse": {
     "Zero": 0.003664011153995776,
     "RandomForest": 0.0027190264122943487,
@@ -30,12 +39,18 @@
     "LinearRegression": 0.0028107477192357484,
     "Ridge": 0.002809213491929791,
     "Lasso": 0.002807073402042543,
-    "ElasticNet": 0.0028070415768895155
+    "ElasticNet": 0.0028070415768895155,
+    "Ensemble": 0.002715849978680523
   },
   "intervals": {
+    "Ensemble": {
+      "q_lower": -0.004895571280111048,
+      "q_upper": 0.005605227172212654,
+      "test_coverage": 0.8900634249471459
+    },
     "RandomForest": {
       "q_lower": -0.004892517834387853,
-      "q_upper": 0.005559701250828491,
+      "q_upper": 0.00555970125082849,
       "test_coverage": 0.8837209302325582
     },
     "XGBoost": {
@@ -58,15 +73,22 @@
     "ihsg_rolling_vol_10": 0.0040141168978271545
   },
   "sentiment_weights": {
-    "nikkei_gap": 0.10862184855223278,
-    "kospi_gap": 0.23443661249479786,
-    "hangseng_gap": 0.3083931530092552,
-    "shanghai_gap": 0.0635011882968275,
-    "eido_ret": 0.10367320667837403,
-    "idx_ret": 0.18137399096851273
+    "nikkei_gap": 0.10484066082458411,
+    "kospi_gap": 0.2377956121991637,
+    "hangseng_gap": 0.3099617577429629,
+    "shanghai_gap": 0.055039945068084996,
+    "eido_ret": 0.10205743359776712,
+    "idx_ret": 0.19030459056743715
   },
   "deploy_refit": true,
   "n_trials": 50,
+  "versions": {
+    "sklearn": "1.6.1",
+    "xgboost": "3.4.1",
+    "numpy": "2.1.3",
+    "pandas": "2.2.3",
+    "shap": "0.52.0"
+  },
   "data_range": [
     "2012-01-02",
     "2026-06-26"

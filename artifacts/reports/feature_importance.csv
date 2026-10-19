@@ -1,4 +1,15 @@
 model,feature,label,mean_abs_shap,builtin_importance
+Ensemble,nikkei_gap,Nikkei 225 opening gap,0.00022069119432670443,0.11604478754371499
+Ensemble,kospi_gap,KOSPI opening gap,0.0005885521050778608,0.1662934517797106
+Ensemble,hangseng_gap,Hang Seng opening gap,0.0006105844295771467,0.2043151572403797
+Ensemble,shanghai_gap,Shanghai opening gap,9.253155839403676e-05,0.06301017392516367
+Ensemble,eido_ret,EIDO overnight return,0.00020475884222817743,0.14157241109594582
+Ensemble,idx_ret,IDX ETF overnight return,0.0004145914727246068,0.15348712790167768
+Ensemble,ihsg_lag1,IHSG return (T-1),0.00011504644116551696,0.03516500302895416
+Ensemble,ihsg_lag2,IHSG return (T-2),2.8629819279458426e-05,0.025625263287859947
+Ensemble,ihsg_lag3,IHSG return (T-3),2.2485843619693155e-05,0.02554130087241461
+Ensemble,ihsg_rolling_mean_5,IHSG 5-day mean return,3.0488983657327914e-05,0.02526547084065406
+Ensemble,ihsg_rolling_vol_10,IHSG 10-day volatility,6.390158538545777e-05,0.04367982249493799
 RandomForest,nikkei_gap,Nikkei 225 opening gap,0.00022543053683877974,0.12192765229897974
 RandomForest,kospi_gap,KOSPI opening gap,0.0005885348662600622,0.16780299564717405
 RandomForest,hangseng_gap,Hang Seng opening gap,0.0006089954271305896,0.20554604488575584

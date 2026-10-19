@@ -145,6 +145,7 @@ class Store:
             "cv_rmse": self.meta.get("cv_rmse"),
             "intervals": self.meta.get("intervals"),
             "best_params": self.meta.get("best_params"),
+            "ensemble": self.meta.get("ensemble"),
             "data_first": ih.min(), "data_last": ih.max(),
             "replay_min": ih[40] if len(ih) > 40 else ih.min(),
             "replay_max": ih.max() + pd.Timedelta(days=7),
