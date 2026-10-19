@@ -540,8 +540,11 @@ def estimate(model, meta, model_name, x, prev_close, with_shap=True):
            "direction": "UP" if y_hat > 0 else "DOWN" if y_hat < 0 else "FLAT",
            "features": {f: float(x[f]) for f in FEATURES}}
     if with_shap:
-        c, base = explain(model, X)
-        out["shap"], out["shap_base"] = c.iloc[0].to_dict(), base
+        try:
+            c, base = explain(model, X)
+            out["shap"], out["shap_base"] = c.iloc[0].to_dict(), base
+        except Exception as e:  # noqa: BLE001 - the estimate itself is still valid without attribution
+            out["shap"], out["shap_base"], out["shap_error"] = None, None, f"{type(e).__name__}: {e}"
     return out
 
 
