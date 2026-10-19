@@ -1,0 +1,12 @@
+# Install the SAME major.minor versions of scikit-learn / xgboost as the Colab runtime that
+# trained the models (shown in artifacts/metadata.json -> "versions" and at GET /api/meta).
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pandas>=2.1
+numpy>=1.26
+scipy>=1.11
+scikit-learn>=1.4
+xgboost>=2.0
+shap>=0.45
+yfinance>=0.2.54
+joblib>=1.3
