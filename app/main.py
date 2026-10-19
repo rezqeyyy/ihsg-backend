@@ -52,8 +52,12 @@ async def catch_errors(request: Request, call_next):
         return await call_next(request)
     except Exception as e:  # noqa: BLE001
         log.error("Unhandled error on %s\n%s", request.url.path, traceback.format_exc())
+        # where it happened: the last frame inside our own code (app/...), plus the very last frame
+        frames = traceback.extract_tb(e.__traceback__)
+        ours = [f for f in frames if "/app/" in f.filename.replace("\\", "/")]
+        where = " <- ".join(f"{f.filename.rsplit('/', 1)[-1]}:{f.lineno} {f.name}" for f in [*ours[-1:], *frames[-1:]])
         return JSONResponse(status_code=500,
-                            content={"detail": f"Server error on {request.url.path}: {type(e).__name__}: {e}"})
+                            content={"detail": f"Server error on {request.url.path}: {type(e).__name__}: {e} [{where}]"})
 
 
 # CORS: which websites may call this API from the browser.
