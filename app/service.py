@@ -225,7 +225,13 @@ class Store:
         key = (d.strftime("%Y-%m-%d"), name)
         if key not in self._replay_cache:
             p = core.predict_for_date(self.frames, d, m, self.meta, name)
-            self._replay_cache[key] = self._format(p, "replay")
+            out = self._format(p, "replay")
+            # The dashboard model is refit on 2012-2025 (or 2012-2023 without refit). A replay date inside
+            # that period was seen in training, so the estimate is in-sample and must not be read as a test.
+            fit_end = core.SPLITS["test" if self.meta.get("deploy_refit") else "val"][1]
+            out["fit_end"] = fit_end
+            out["in_sample"] = bool(d <= pd.Timestamp(fit_end))
+            self._replay_cache[key] = out
         return self._replay_cache[key]
 
     def live(self, model: str | None = None, force: bool = False) -> dict:

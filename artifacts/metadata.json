@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-10-19T13:40:21",
+  "created_at": "2026-10-19T16:02:13",
   "primary_config": "A",
   "champion": "Ensemble",
   "tree_models": [
@@ -49,7 +49,7 @@
       "test_coverage": 0.8900634249471459
     },
     "RandomForest": {
-      "q_lower": -0.004892517834387853,
+      "q_lower": -0.004892517834387854,
       "q_upper": 0.00555970125082849,
       "test_coverage": 0.8837209302325582
     },

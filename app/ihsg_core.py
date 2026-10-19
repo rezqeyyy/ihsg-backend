@@ -462,6 +462,12 @@ def directional_accuracy(y, p):
     m = y != 0
     return float(np.mean(np.sign(p[m]) == np.sign(y[m])))
 
+def balanced_directional_accuracy(y, p):
+    """Mean of the hit rate on up days and on down days (days with y = 0 excluded).
+    Unlike plain DA it cannot be inflated by always predicting the more frequent direction."""
+    y, p = np.asarray(y, float), np.asarray(p, float)
+    rates = [float(np.mean(np.sign(p[m]) == np.sign(y[m]))) for m in (y > 0, y < 0) if m.any()]
+    return float(np.mean(rates)) if rates else float("nan")
 
 def majority_da(y_train, y_test):
     yt = np.asarray(y_train, float)

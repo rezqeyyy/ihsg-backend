@@ -1,0 +1,15 @@
+series,ADF,p_value,stationary (p < 0.05)
+IHSG close (level),-1.488,0.5396,False
+EIDO close (level),-3.61,0.0056,True
+nikkei_gap,-56.213,0.0,True
+kospi_gap,-22.467,0.0,True
+hangseng_gap,-31.732,0.0,True
+shanghai_gap,-6.51,0.0,True
+eido_ret,-17.513,0.0,True
+idx_ret,-13.801,0.0,True
+ihsg_lag1,-39.044,0.0,True
+ihsg_lag2,-39.045,0.0,True
+ihsg_lag3,-39.039,0.0,True
+ihsg_rolling_mean_5,-9.625,0.0,True
+ihsg_rolling_vol_10,-5.884,0.0,True
+target y,-7.474,0.0,True
