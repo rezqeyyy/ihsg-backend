@@ -6,15 +6,21 @@ FastAPI backend for the IHSG Opening Estimator.
 """
 from __future__ import annotations
 
+import logging
 import os
+import traceback
 from contextlib import asynccontextmanager
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .service import ArtifactsMissing, Store
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("ihsg")
 
 STATE: dict = {}
 
@@ -31,14 +37,33 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="IHSG Opening Estimator API",
     description="Estimates the IHSG opening value from pre-market signals of Asian indices and "
-                "U.S.-listed Indonesia ETFs (Random Forest & XGBoost).",
+                "U.S.-listed Indonesia ETFs (Random Forest & XGBoost ensemble).",
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+# Unexpected errors -> JSON 500 *inside* the CORS layer. Without this, a crash returns a bare 500
+# without CORS headers and the browser only reports "cannot reach the backend", hiding the real error.
+# (Registered before CORSMiddleware, so CORS wraps it and still adds its headers.)
+@app.middleware("http")
+async def catch_errors(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as e:  # noqa: BLE001
+        log.error("Unhandled error on %s\n%s", request.url.path, traceback.format_exc())
+        return JSONResponse(status_code=500,
+                            content={"detail": f"Server error on {request.url.path}: {type(e).__name__}: {e}"})
+
+
+# CORS: which websites may call this API from the browser.
+#   IHSG_CORS_ORIGINS      comma-separated origins, default "*" = any website (public read-only API, no cookies)
+#   IHSG_CORS_ORIGIN_REGEX optional pattern, e.g. "https://.*\.vercel\.app" for all Vercel preview URLs
+_origins = [o.strip().rstrip("/") for o in os.environ.get("IHSG_CORS_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Mengizinkan semua origin (termasuk Vercel kamu)
-    allow_credentials=True,
+    allow_origins=_origins,
+    allow_origin_regex=os.environ.get("IHSG_CORS_ORIGIN_REGEX") or None,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -65,6 +90,11 @@ class SimulateRequest(BaseModel):
     overrides: dict[str, float] = Field(
         default_factory=dict,
         description="Pre-market signals as fractions, e.g. {'eido_ret': 0.012, 'nikkei_gap': -0.004}")
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    return {"app": "IHSG Opening Estimator API", "docs": "/docs", "health": "/api/health"}
 
 
 @app.get("/api/health")

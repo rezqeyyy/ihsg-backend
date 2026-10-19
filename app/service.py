@@ -5,7 +5,7 @@ It reads the artefacts written by the Colab notebook (section 7):
 
     ARTIFACTS_DIR/
         metadata.json
-        models/deploy_RandomForest.joblib, deploy_XGBoost.joblib
+        models/deploy_Ensemble.joblib (+ deploy_RandomForest / deploy_XGBoost)
         reports/*.csv
         data/*.csv          (the 7 price files)
 
@@ -99,23 +99,42 @@ class Store:
 
     # ------------------------------------------------------------------ load
     def reload(self):
+        # tolerate one extra folder level, e.g. artifacts/ihsg_opening_estimator/metadata.json
+        # (what you get when extracting the Google Drive download as a folder)
+        if not (self.dir / "metadata.json").exists():
+            nested = sorted(self.dir.glob("*/metadata.json")) + sorted(self.dir.glob("*/*/metadata.json"))
+            if nested:
+                self.dir = nested[0].parent
         meta_path = self.dir / "metadata.json"
         if not meta_path.exists():
             raise ArtifactsMissing(
-                f"{meta_path} not found. Copy the folder 'ihsg_opening_estimator' that the Colab "
-                f"notebook saved to Google Drive into {self.dir} (see README).")
+                f"{meta_path} not found. Copy the WHOLE folder 'ihsg_opening_estimator' from Google Drive "
+                f"(metadata.json, models/, reports/, data/) into {self.dir} (see README).")
         self.meta = json.loads(meta_path.read_text())
         self.models, self.model_errors = {}, {}
-        for name in self.meta["tree_models"]:
+        # By default only the main model (the ensemble) is loaded: it already contains RF and XGBoost,
+        # and loading the single models too would triple the memory use (Render free = 512 MB).
+        # IHSG_MODELS=all loads every model again (e.g. to compare them on a bigger server).
+        names = list(self.meta["tree_models"])
+        if os.environ.get("IHSG_MODELS", "champion").lower() != "all" and self.meta.get("champion") in names:
+            names = [self.meta["champion"]]
+        for name in names:
             try:
-                self.models[name] = joblib.load(self.dir / "models" / f"deploy_{name}.joblib")
+                path = self.dir / "models" / f"deploy_{name}.joblib"
+                if not path.exists():                      # also accept the files directly in artifacts/
+                    path = self.dir / f"deploy_{name}.joblib"
+                self.models[name] = joblib.load(path)
             except Exception as e:  # noqa: BLE001 - report but keep serving the other model
                 self.model_errors[name] = f"{type(e).__name__}: {e}"
         if not self.models:
             raise ArtifactsMissing(f"No model could be loaded: {self.model_errors}")
         self.version_warnings = check_versions(self.meta.get("versions", {}))
         self.champion = self.meta["champion"] if self.meta["champion"] in self.models else next(iter(self.models))
-        self.frames = core.load_from_csv(self.dir / "data")
+        data_dir = self.dir / "data" if (self.dir / "data").exists() else self.dir
+        try:
+            self.frames = core.load_from_csv(data_dir)
+        except FileNotFoundError as e:
+            raise ArtifactsMissing(f"Price CSV files not found in {self.dir / 'data'}. {e}") from e
         self.cleaned, _ = core.clean_all(self.frames)
         self.dataset = core.build_dataset(self.cleaned)
         self._replay_cache: dict[tuple[str, str], dict] = {}
@@ -252,7 +271,7 @@ class Store:
             curves.append({"key": f, "label": "EIDO & IDX ETF" if f == "eido_ret" else core.FEATURE_LABELS[f],
                            "x": grid.tolist(), "y": m.predict(Xg).tolist(), "current": float(x[f])})
         sim["shap_ranked"] = sorted(
-            [{"key": k, "label": core.FEATURE_LABELS[k], "value": v} for k, v in sim["shap"].items()],
+            [{"key": k, "label": core.FEATURE_LABELS[k], "value": v} for k, v in (sim.get("shap") or {}).items()],
             key=lambda r: -abs(r["value"]))
         return clean_json({"target_date": base_p["target_date"], "model": name,
                            "base": {k: base_p[k] for k in ("y_hat", "open_hat", "lower_open", "upper_open", "direction")},
