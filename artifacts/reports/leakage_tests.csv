@@ -1,0 +1,10 @@
+check,passed,result
+1. every ETF return comes from a U.S. session dated before T,True,PASS
+2. perturbation test: features of T unchanged when all future data is scrambled (40 dates),True,PASS
+   (sanity) the scrambling really changed the target y_T,True,PASS
+3. live builder (data from T onward removed) == training row (40 dates),True,PASS
+"4. config A: train < val < test, no overlapping / duplicated dates",True,PASS
+"4. config B: train < val < test, no overlapping / duplicated dates",True,PASS
+"4. config C: train < val < test, no overlapping / duplicated dates",True,PASS
+5. target column is not among the features,True,PASS
+6. no feature is suspiciously correlated with the target (max |r| = 0.40 < 0.9),True,PASS

@@ -1,0 +1,13 @@
+,missing_before_drop,imputed_as_zero,rule
+eido_ret,3,90,no new U.S. session -> 0
+hangseng_gap,0,142,market closed on T -> 0
+idx_ret,3,91,no new U.S. session -> 0
+ihsg_lag1,2,0,warm-up rows dropped
+ihsg_lag2,3,0,warm-up rows dropped
+ihsg_lag3,4,0,warm-up rows dropped
+ihsg_rolling_mean_5,6,0,warm-up rows dropped
+ihsg_rolling_vol_10,11,0,warm-up rows dropped
+kospi_gap,0,153,market closed on T -> 0
+nikkei_gap,0,195,market closed on T -> 0
+shanghai_gap,0,212,market closed on T -> 0
+y,1,0,row dropped

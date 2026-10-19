@@ -1,0 +1,8 @@
+,rows,duplicate_dates,weekend_rows,missing_Open,missing_High,missing_Low,missing_Close,missing_Volume,nonpositive_price,first,last
+ihsg,3503,0,0,0,0,0,0,0,0,2012-01-02,2026-06-26
+nikkei,3542,0,0,0,0,0,0,0,0,2012-01-04,2026-06-26
+kospi,3554,0,0,0,0,0,0,0,0,2012-01-02,2026-06-26
+hangseng,3560,0,0,0,0,0,0,0,0,2012-01-03,2026-06-26
+shanghai,3511,0,0,0,0,0,0,0,0,2012-01-04,2026-06-26
+eido,3641,0,0,0,0,0,0,0,0,2012-01-03,2026-06-26
+idx,3641,0,0,0,0,0,0,0,0,2012-01-03,2026-06-26

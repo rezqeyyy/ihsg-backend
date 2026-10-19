@@ -1,0 +1,8 @@
+,rows_in,removed_duplicates,removed_weekend,removed_missing_open_close,removed_nonpositive,removed_flat_zero_volume,removed_price_jump,rows_out
+ihsg,3503,0,0,0,0,5,0,3498
+nikkei,3542,0,0,0,0,0,0,3542
+kospi,3554,0,0,0,0,1,0,3553
+hangseng,3560,0,0,0,0,0,0,3560
+shanghai,3511,0,0,0,0,0,0,3511
+eido,3641,0,0,0,0,0,0,3641
+idx,3641,0,0,0,0,1,0,3640

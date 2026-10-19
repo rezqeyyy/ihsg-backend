@@ -1,0 +1,8 @@
+,ohlc_inconsistent,stale_close_runs_>=3,zero_volume_days,missing_high_low_volume,max_abs_close_move_pct
+ihsg,0.0,0.0,3.0,0.0,10.19
+nikkei,0.0,0.0,11.0,0.0,12.4
+kospi,0.0,0.0,0.0,0.0,12.06
+hangseng,0.0,0.0,0.0,0.0,13.22
+shanghai,0.0,0.0,0.0,0.0,8.49
+eido,0.0,1.0,0.0,0.0,14.6
+idx,0.0,2.0,0.0,0.0,13.36

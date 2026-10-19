@@ -1,0 +1,74 @@
+{
+  "created_at": "2026-10-19T07:29:36",
+  "primary_config": "A",
+  "champion": "RandomForest",
+  "tree_models": [
+    "RandomForest",
+    "XGBoost"
+  ],
+  "best_params": {
+    "RandomForest": {
+      "n_estimators": 666,
+      "max_depth": 7,
+      "min_samples_split": 8,
+      "max_features": "sqrt"
+    },
+    "XGBoost": {
+      "n_estimators": 225,
+      "learning_rate": 0.019451961728264862,
+      "max_depth": 3,
+      "subsample": 0.8412246606033595,
+      "colsample_bytree": 0.836583752080055,
+      "reg_alpha": 4.735942734840122e-08,
+      "reg_lambda": 2.427442676727245
+    }
+  },
+  "cv_rmse": {
+    "Zero": 0.003664011153995776,
+    "RandomForest": 0.0027190264122943487,
+    "XGBoost": 0.0027311232391435346,
+    "LinearRegression": 0.0028107477192357484,
+    "Ridge": 0.002809213491929791,
+    "Lasso": 0.002807073402042543,
+    "ElasticNet": 0.0028070415768895155
+  },
+  "intervals": {
+    "RandomForest": {
+      "q_lower": -0.004892517834387853,
+      "q_upper": 0.005559701250828491,
+      "test_coverage": 0.8837209302325582
+    },
+    "XGBoost": {
+      "q_lower": -0.004949517288201567,
+      "q_upper": 0.005525750835040744,
+      "test_coverage": 0.8816067653276956
+    }
+  },
+  "feature_std_dev": {
+    "nikkei_gap": 0.007541018644666753,
+    "kospi_gap": 0.005429285447247006,
+    "hangseng_gap": 0.007934893860345705,
+    "shanghai_gap": 0.005911689427737561,
+    "eido_ret": 0.015241934149282528,
+    "idx_ret": 0.014716713476378011,
+    "ihsg_lag1": 0.009431343762899969,
+    "ihsg_lag2": 0.009388306191873941,
+    "ihsg_lag3": 0.009366918674565025,
+    "ihsg_rolling_mean_5": 0.004085027718525612,
+    "ihsg_rolling_vol_10": 0.0040141168978271545
+  },
+  "sentiment_weights": {
+    "nikkei_gap": 0.10862184855223278,
+    "kospi_gap": 0.23443661249479786,
+    "hangseng_gap": 0.3083931530092552,
+    "shanghai_gap": 0.0635011882968275,
+    "eido_ret": 0.10367320667837403,
+    "idx_ret": 0.18137399096851273
+  },
+  "deploy_refit": true,
+  "n_trials": 50,
+  "data_range": [
+    "2012-01-02",
+    "2026-06-26"
+  ]
+}
