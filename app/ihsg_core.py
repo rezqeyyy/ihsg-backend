@@ -189,8 +189,15 @@ def refresh_with_yfinance(frames: dict, lookback_days: int = 30) -> dict:
     start = (pd.Timestamp.today() - pd.Timedelta(days=lookback_days)).strftime("%Y-%m-%d")
     out = {}
     for k, old in frames.items():
-        new = download_yfinance(k, start)
-        out[k] = pd.concat([old[old.index < new.index.min()], new])
+        try:
+            new = download_yfinance(k, start)
+            part_old = old[old.index < new.index.min()].copy()
+            part_new = new.copy()
+            part_old["_src"] = 0
+            part_new["_src"] = 1
+            out[k] = pd.concat([part_old, part_new])
+        except Exception:
+            out[k] = old
     return out
 
 
@@ -239,22 +246,27 @@ def clean_frame(df):
     wk = d.index.dayofweek >= 5
     miss = d[["Open", "Close"]].isna().any(axis=1)
     nonpos = (d[["Open", "Close"]] <= 0).any(axis=1) & ~miss
+    is_live_tail = (d.index == d.index.max()) & (d["Open"] != d["Close"].shift(1))
     flat = ((d["Open"] == d["High"]) & (d["High"] == d["Low"]) & (d["Low"] == d["Close"])
-            & (d["Volume"].fillna(0) == 0)) & ~miss & ~nonpos
+            & (d["Volume"].fillna(0) == 0) & ~is_live_tail) & ~miss & ~nonpos
     log["removed_weekend"] = int(wk.sum())
     log["removed_missing_open_close"] = int((miss & ~wk).sum())
     log["removed_nonpositive"] = int((nonpos & ~wk).sum())
     log["removed_flat_zero_volume"] = int((flat & ~wk).sum())
     d = d[~(wk | miss | nonpos | flat)]
 
-    # sequential jump filter (only past information is used)
-    keep, last_close, jumps = [], None, 0
-    for o, c in zip(d["Open"].values, d["Close"].values):
-        if last_close is not None and (abs(c / last_close - 1) > CLEAN_MAX_ABS_MOVE
-                                       or abs(o / last_close - 1) > CLEAN_MAX_ABS_MOVE):
+    # sequential jump filter (only past information is used; reset baseline across CSV->yfinance seam or >5d gap)
+    keep, last_close, last_dt, last_src, jumps = [], None, None, None, 0
+    srcs = d["_src"].values if "_src" in d.columns else [0] * len(d)
+    for dt, o, c, sc in zip(d.index, d["Open"].values, d["Close"].values, srcs):
+        seam = (last_src is not None and sc != last_src) or (last_dt is not None and (dt - last_dt).days > 5)
+        if last_close is not None and not seam and (abs(c / last_close - 1) > CLEAN_MAX_ABS_MOVE
+                                                    or abs(o / last_close - 1) > CLEAN_MAX_ABS_MOVE):
             keep.append(False); jumps += 1
         else:
-            keep.append(True); last_close = c
+            keep.append(True); last_close = c; last_dt = dt; last_src = sc
+    if "_src" in d.columns:
+        d = d.drop(columns=["_src"])
     d = d[np.array(keep, dtype=bool)] if len(d) else d
     log["removed_price_jump"] = jumps
     log["rows_out"] = len(d)
@@ -506,6 +518,14 @@ def explain(model, X: pd.DataFrame):
             total = c * wi if total is None else total + c * wi
             base += wi * b
         return total, base
+    if type(model).__name__ == "XGBRegressor":
+        import xgboost as xgb
+        c = model.get_booster().predict(xgb.DMatrix(X), pred_contribs=True)
+        return pd.DataFrame(c[:, :-1], index=X.index, columns=X.columns), float(c[0, -1])
+    import shap
+    ex = shap.TreeExplainer(model)
+    sv = ex.shap_values(X, check_additivity=False)
+    return pd.DataFrame(sv, index=X.index, columns=X.columns), float(np.ravel(ex.expected_value)[0])
 
 
 def sentiment_score(x, meta):
@@ -554,12 +574,23 @@ def estimate(model, meta, model_name, x, prev_close, with_shap=True):
     return out
 
 
-def predict_for_date(frames, target_date, model, meta, model_name, k_analogs=10):
+def predict_for_date(frames, target_date, model, meta, model_name, k_analogs=10, live_fallback=False):
     """Full estimate for one IHSG session using only data available before it."""
     target_date = pd.Timestamp(target_date).normalize()
     cleaned, _ = clean_all(frames)
     ds = build_dataset(cleaned, target_date=target_date)
-    row = ds.loc[target_date]
+    row = ds.loc[target_date].copy()
+    asia_session = {}
+    for k in ASIA_KEYS:
+        sub = cleaned[k][cleaned[k].index <= target_date]
+        if target_date in cleaned[k].index:
+            asia_session[k] = str(target_date.date())
+        elif live_fallback and len(sub) >= 2:
+            gaps = opening_gap(sub).dropna()
+            if len(gaps):
+                row[f"{k}_gap"] = float(gaps.iloc[-1])
+                row[f"{k}_closed"] = False
+                asia_session[k] = str(gaps.index[-1].date())
     missing = [f for f in FEATURES if pd.isna(row[f])]
     if missing:
         raise ValueError(f"Cannot build features for {target_date.date()}: missing {missing}")
@@ -571,7 +602,8 @@ def predict_for_date(frames, target_date, model, meta, model_name, k_analogs=10)
     out["analogs"] = historical_analogs(row, ds[ds.index < target_date], meta, k_analogs)
     out["warnings"] = [f"{INSTRUMENTS[k]['label']}: no session on {target_date.date()} "
                        "(holiday / not open yet) -> gap = 0" for k in ASIA_KEYS
-                       if target_date not in cleaned[k].index]
+                       if k not in asia_session]
+    out["asia_session"] = asia_session
     out["etf_session"] = {k: str(pd.Timestamp(row[f"{k}_us_date"]).date())
                           for k in ETF_KEYS if pd.notna(row[f"{k}_us_date"])}
     ih = cleaned["ihsg"]

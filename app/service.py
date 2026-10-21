@@ -199,19 +199,20 @@ class Store:
         f = p["features"]
         closed = {w.split(":")[0] for w in p.get("warnings", [])}
         etf_day = p.get("etf_session", {})
+        asia_day = p.get("asia_session", {})
         rows = [
             {"time": "04:00", "key": "eido_ret", "label": "EIDO", "venue": "New York close",
              "value": f["eido_ret"], "session": etf_day.get("eido")},
             {"time": "04:00", "key": "idx_ret", "label": "IDX ETF", "venue": "New York close",
              "value": f["idx_ret"], "session": etf_day.get("idx")},
             {"time": "07:00", "key": "nikkei_gap", "label": "Nikkei 225", "venue": "Tokyo open",
-             "value": f["nikkei_gap"], "closed": "Nikkei 225" in closed},
+             "value": f["nikkei_gap"], "session": asia_day.get("nikkei"), "closed": "Nikkei 225" in closed},
             {"time": "07:00", "key": "kospi_gap", "label": "KOSPI", "venue": "Seoul open",
-             "value": f["kospi_gap"], "closed": "KOSPI" in closed},
+             "value": f["kospi_gap"], "session": asia_day.get("kospi"), "closed": "KOSPI" in closed},
             {"time": "08:30", "key": "hangseng_gap", "label": "Hang Seng", "venue": "Hong Kong open",
-             "value": f["hangseng_gap"], "closed": "Hang Seng" in closed},
+             "value": f["hangseng_gap"], "session": asia_day.get("hangseng"), "closed": "Hang Seng" in closed},
             {"time": "08:30", "key": "shanghai_gap", "label": "Shanghai", "venue": "Shanghai open",
-             "value": f["shanghai_gap"], "closed": "Shanghai Composite" in closed},
+             "value": f["shanghai_gap"], "session": asia_day.get("shanghai"), "closed": "Shanghai Composite" in closed},
         ]
         return rows
 
@@ -242,7 +243,7 @@ class Store:
             return hit[1]
         with self._lock:
             frames = core.refresh_with_yfinance(self.frames)
-            p = core.predict_for_date(frames, core.next_session_date(), m, self.meta, name)
+            p = core.predict_for_date(frames, core.next_session_date(), m, self.meta, name, live_fallback=True)
             out = self._format(p, "live")
             out["fetched_at"] = datetime.now().isoformat(timespec="seconds")
             self._live_cache[name] = (time.time(), out)
