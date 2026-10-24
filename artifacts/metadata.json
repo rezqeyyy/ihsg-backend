@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-10-19T16:02:13",
+  "created_at": "2026-10-24T15:03:51",
   "primary_config": "A",
   "champion": "Ensemble",
   "tree_models": [
@@ -9,76 +9,76 @@
   ],
   "best_params": {
     "RandomForest": {
-      "n_estimators": 666,
+      "n_estimators": 981,
       "max_depth": 7,
-      "min_samples_split": 8,
+      "min_samples_split": 2,
       "max_features": "sqrt"
     },
     "XGBoost": {
-      "n_estimators": 225,
-      "learning_rate": 0.019451961728264862,
+      "n_estimators": 270,
+      "learning_rate": 0.021904489857426972,
       "max_depth": 3,
-      "subsample": 0.8412246606033595,
-      "colsample_bytree": 0.836583752080055,
-      "reg_alpha": 4.735942734840122e-08,
-      "reg_lambda": 2.427442676727245
+      "subsample": 0.7069835981130017,
+      "colsample_bytree": 0.6964630048205055,
+      "reg_alpha": 0.00010641723677515477,
+      "reg_lambda": 4.81004503760146
     }
   },
   "ensemble": {
     "method": "weighted average (VotingRegressor)",
     "weights": {
-      "RandomForest": 0.7,
-      "XGBoost": 0.3
+      "RandomForest": 0.45,
+      "XGBoost": 0.55
     },
     "weight_selected_by": "min mean CV RMSE of out-of-fold predictions 2012-2023, w in [0.2, 0.8]"
   },
   "cv_rmse": {
-    "Zero": 0.003664011153995776,
-    "RandomForest": 0.0027190264122943487,
-    "XGBoost": 0.0027311232391435346,
-    "LinearRegression": 0.0028107477192357484,
-    "Ridge": 0.002809213491929791,
-    "Lasso": 0.002807073402042543,
-    "ElasticNet": 0.0028070415768895155,
-    "Ensemble": 0.002715849978680523
+    "Zero": 0.003881777070542275,
+    "RandomForest": 0.002765653651408367,
+    "XGBoost": 0.002763012464451997,
+    "LinearRegression": 0.002805086677725021,
+    "Ridge": 0.0027952221279950603,
+    "Lasso": 0.002797544896554846,
+    "ElasticNet": 0.002797466039497903,
+    "Ensemble": 0.002753807705422431
   },
   "intervals": {
     "Ensemble": {
-      "q_lower": -0.004895571280111048,
-      "q_upper": 0.005605227172212654,
-      "test_coverage": 0.8900634249471459
+      "q_lower": -0.00467128318569978,
+      "q_upper": 0.005742141031223059,
+      "test_coverage": 0.8741865509761388
     },
     "RandomForest": {
-      "q_lower": -0.004892517834387854,
-      "q_upper": 0.00555970125082849,
-      "test_coverage": 0.8837209302325582
+      "q_lower": -0.0047807708035076816,
+      "q_upper": 0.005750202904751071,
+      "test_coverage": 0.8872017353579176
     },
     "XGBoost": {
-      "q_lower": -0.004949517288201567,
-      "q_upper": 0.005525750835040744,
-      "test_coverage": 0.8816067653276956
+      "q_lower": -0.004550908460814538,
+      "q_upper": 0.005795776218704443,
+      "test_coverage": 0.8720173535791758
     }
   },
   "feature_std_dev": {
-    "nikkei_gap": 0.007541018644666753,
-    "kospi_gap": 0.005429285447247006,
-    "hangseng_gap": 0.007934893860345705,
-    "shanghai_gap": 0.005911689427737561,
-    "eido_ret": 0.015241934149282528,
-    "idx_ret": 0.014716713476378011,
-    "ihsg_lag1": 0.009431343762899969,
-    "ihsg_lag2": 0.009388306191873941,
-    "ihsg_lag3": 0.009366918674565025,
-    "ihsg_rolling_mean_5": 0.004085027718525612,
-    "ihsg_rolling_vol_10": 0.0040141168978271545
+    "nikkei_gap": 0.0076350261898683255,
+    "kospi_gap": 0.005322770619706229,
+    "hangseng_gap": 0.007703151688089143,
+    "shanghai_gap": 0.006039444045261347,
+    "eido_ret": 0.01569568552535164,
+    "idx_ret": 0.015114551115691967,
+    "ihsg_lag1": 0.00965160334645272,
+    "ihsg_lag2": 0.00967349519902339,
+    "ihsg_lag3": 0.009648404251534149,
+    "ihsg_rolling_mean_5": 0.004190255629805817,
+    "ihsg_rolling_vol_10": 0.004099742156218648
   },
   "sentiment_weights": {
-    "nikkei_gap": 0.10484066082458411,
-    "kospi_gap": 0.2377956121991637,
-    "hangseng_gap": 0.3099617577429629,
-    "shanghai_gap": 0.055039945068084996,
-    "eido_ret": 0.10205743359776712,
-    "idx_ret": 0.19030459056743715
+    "nikkei_gap": 0.09859402647503651,
+    "kospi_gap": 0.2451396512083831,
+    "hangseng_gap": 0.29801318810641153,
+    "shanghai_gap": 0.05157655830028786,
+    "eido_ret": 0.10133459070227449,
+    "idx_ret": 0.20534198520760655
   },
   "deploy_refit": true,
   "n_trials": 50,
@@ -87,7 +87,7 @@
     "xgboost": "3.4.1",
     "numpy": "2.1.3",
     "pandas": "2.2.3",
-    "shap": "0.52.0"
+    "shap": "0.54.1"
   },
   "data_range": [
     "2012-01-02",
