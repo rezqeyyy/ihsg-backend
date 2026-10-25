@@ -25,12 +25,27 @@ log = logging.getLogger("ihsg")
 STATE: dict = {}
 
 
+def _sync_in_background():
+    """On every start (also when Render wakes the server up) bring the forecast log up to date,
+    in a background thread so the website does not wait for the price download."""
+    import threading
+
+    def job():
+        try:
+            log.info("history sync: %s", STATE["store"].sync_history())
+        except Exception:  # noqa: BLE001 - no internet / Yahoo down: try again next time
+            log.warning("history sync failed\n%s", traceback.format_exc())
+    if "store" in STATE and os.environ.get("IHSG_SYNC_ON_START", "1") != "0":
+        threading.Thread(target=job, daemon=True).start()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
         STATE["store"] = Store()
     except ArtifactsMissing as e:
         STATE["error"] = str(e)
+    _sync_in_background()
     yield
 
 
@@ -151,6 +166,19 @@ def data_quality():
 @app.get("/api/history")
 def history():
     return store().history()
+
+
+@app.post("/api/history/sync")
+def history_sync(request: Request, max_days: int = Query(14, ge=1, le=60)):
+    """Fill in real opening prices and backfill missed sessions (called by the scheduled job).
+    If IHSG_SYNC_TOKEN is set, the request must carry the header  X-Sync-Token: <token>."""
+    token = os.environ.get("IHSG_SYNC_TOKEN")
+    if token and request.headers.get("x-sync-token") != token:
+        raise HTTPException(401, "Invalid or missing X-Sync-Token header.")
+    try:
+        return store().sync_history(max_days)
+    except Exception as e:  # noqa: BLE001 - network / data provider problems
+        raise HTTPException(502, f"History sync failed: {e}") from e
 
 
 @app.post("/api/reload")

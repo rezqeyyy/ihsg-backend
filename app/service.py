@@ -14,6 +14,7 @@ features are computed by identical code in training and in the website.
 """
 from __future__ import annotations
 
+import inspect
 import json
 import math
 import os
@@ -243,11 +244,13 @@ class Store:
             return hit[1]
         with self._lock:
             frames = core.refresh_with_yfinance(self.frames)
-            p = core.predict_for_date(frames, core.next_session_date(), m, self.meta, name, live_fallback=True)
+            # live_fallback exists only in newer versions of ihsg_core.py; pass it when supported
+            extra = {"live_fallback": True} if "live_fallback" in inspect.signature(core.predict_for_date).parameters else {}
+            p = core.predict_for_date(frames, core.next_session_date(), m, self.meta, name, **extra)
             out = self._format(p, "live")
             out["fetched_at"] = datetime.now().isoformat(timespec="seconds")
             self._live_cache[name] = (time.time(), out)
-            log_prediction(out)
+            log_prediction(out, source="live")
             update_actuals(core.clean_all(frames)[0]["ihsg"])
         return out
 
@@ -322,6 +325,36 @@ class Store:
             out[k] = frame_records(df)
         return out
 
+    # --------------------------------------------------------- history sync
+    def sync_history(self, max_days: int = 14) -> dict:
+        """Keep the forecast log complete without anyone opening the website:
+        1. download the latest prices and fill in the real open of every logged session that has traded;
+        2. backfill: an IHSG session of the last `max_days` days that has no logged estimate (the server
+           was asleep, the morning job did not run) gets one, built ONLY from data before that session
+           (the same leak-free builder as replay mode) and marked source='backfill';
+        3. sessions inside the dashboard model's training period are skipped (they would be in-sample)."""
+        name, m = self._model(None)
+        with self._lock:
+            frames = core.refresh_with_yfinance(self.frames)
+            ihsg = core.clean_all(frames)[0]["ihsg"]
+            fit_end = pd.Timestamp(core.SPLITS["test" if self.meta.get("deploy_refit") else "val"][1])
+            since = max(pd.Timestamp.today().normalize() - pd.Timedelta(days=max_days), fit_end + pd.Timedelta(days=1))
+            have = logged_dates(name)
+            added, errors = [], {}
+            for d in ihsg.index[ihsg.index >= since]:
+                key = d.strftime("%Y-%m-%d")
+                if key in have:
+                    continue
+                try:
+                    p = core.predict_for_date(frames, d, m, self.meta, name)
+                    log_prediction(self._format(p, "replay"), source="backfill")
+                    added.append(key)
+                except Exception as e:  # noqa: BLE001 - one bad day must not stop the others
+                    errors[key] = f"{type(e).__name__}: {e}"
+            filled = update_actuals(ihsg)
+        return {"backfilled": added, "actuals_filled": filled, "errors": errors,
+                "latest_ihsg_session": ihsg.index.max().strftime("%Y-%m-%d"), "synced_at": _now()}
+
     # -------------------------------------------------------------- history
     def history(self) -> dict:
         log = read_log()
@@ -336,48 +369,147 @@ class Store:
             tp["da_20"] = tp["hit"].rolling(20, min_periods=10).mean()
             backtest = clean_json(tp[["Date", "y", c, "mae_20", "da_20"]]
                                   .rename(columns={"Date": "date", c: "y_hat"}).to_dict(orient="records"))
-        return {"live_log": log, "backtest": backtest, "champion": self.meta["champion"]}
+        return {"live_log": log, "live_summary": summarise_log(log), "backtest": backtest,
+                "champion": self.meta["champion"], "persistent": _PG}
 
 
 # ---------------------------------------------------------------------------
-# Forecast log (SQLite)
+# Forecast log
+#   IHSG_DATABASE_URL (or DATABASE_URL) = postgresql://... -> PostgreSQL (permanent, e.g. a free Neon or
+#   Supabase database). Not set -> SQLite file at IHSG_DB_PATH (fine locally; on Render's free plan the
+#   disk is wiped on every redeploy/restart, so the history would be lost there).
 # ---------------------------------------------------------------------------
+DB_URL = os.environ.get("IHSG_DATABASE_URL") or os.environ.get("DATABASE_URL") or ""
+_PG = DB_URL.startswith(("postgres://", "postgresql://"))
+
 _SCHEMA = """CREATE TABLE IF NOT EXISTS predictions (
-    target_date TEXT, model TEXT, created_at TEXT, prev_close REAL, y_hat REAL, open_hat REAL,
-    lower_open REAL, upper_open REAL, direction TEXT, sentiment REAL, actual_open REAL, actual_y REAL,
+    target_date TEXT, model TEXT, created_at TEXT, prev_close DOUBLE PRECISION, y_hat DOUBLE PRECISION,
+    open_hat DOUBLE PRECISION, lower_open DOUBLE PRECISION, upper_open DOUBLE PRECISION, direction TEXT,
+    sentiment DOUBLE PRECISION, actual_open DOUBLE PRECISION, actual_y DOUBLE PRECISION,
     PRIMARY KEY (target_date, model))"""
+# columns added after the first version (old databases are upgraded in place)
+_EXTRA_COLUMNS = {"source": "TEXT", "actual_flagged": "INTEGER", "updated_at": "TEXT"}
 
 
-def _db():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    c = sqlite3.connect(DB_PATH)
-    c.execute(_SCHEMA)
+class _Conn:
+    """Tiny wrapper so the same SQL ('?' placeholders) runs on SQLite and PostgreSQL."""
+
+    def __init__(self):
+        if _PG:
+            import psycopg
+            self.c = psycopg.connect(DB_URL, autocommit=False)
+        else:
+            DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+            self.c = sqlite3.connect(DB_PATH)
+
+    def run(self, sql: str, args: tuple = ()):
+        cur = self.c.cursor()
+        cur.execute(sql.replace("?", "%s") if _PG else sql, args)
+        return cur
+
+    def rows(self, sql: str, args: tuple = ()) -> list[dict]:
+        cur = self.run(sql, args)
+        names = [d[0] for d in cur.description]
+        return [dict(zip(names, r)) for r in cur.fetchall()]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, *_):
+        if exc_type is None:
+            self.c.commit()
+        else:
+            self.c.rollback()
+        self.c.close()
+        return False
+
+
+_schema_ready = False
+
+
+def _db() -> _Conn:
+    global _schema_ready
+    c = _Conn()
+    if not _schema_ready:
+        c.run(_SCHEMA)
+        if _PG:
+            for col, typ in _EXTRA_COLUMNS.items():
+                c.run(f"ALTER TABLE predictions ADD COLUMN IF NOT EXISTS {col} {typ}")
+        else:
+            have = {r[1] for r in c.run("PRAGMA table_info(predictions)").fetchall()}
+            for col, typ in _EXTRA_COLUMNS.items():
+                if col not in have:
+                    c.run(f"ALTER TABLE predictions ADD COLUMN {col} {typ}")
+        c.c.commit()
+        _schema_ready = True
     return c
 
 
-def log_prediction(p: dict):
-    with _db() as c:
-        c.execute("""INSERT INTO predictions (target_date, model, created_at, prev_close, y_hat, open_hat,
-                     lower_open, upper_open, direction, sentiment) VALUES (?,?,?,?,?,?,?,?,?,?)
-                     ON CONFLICT(target_date, model) DO UPDATE SET created_at=excluded.created_at,
-                     prev_close=excluded.prev_close, y_hat=excluded.y_hat, open_hat=excluded.open_hat,
-                     lower_open=excluded.lower_open, upper_open=excluded.upper_open,
-                     direction=excluded.direction, sentiment=excluded.sentiment""",
-                  (p["target_date"], p["model"], datetime.now().isoformat(timespec="seconds"), p["prev_close"],
-                   p["y_hat"], p["open_hat"], p["lower_open"], p["upper_open"], p["direction"],
-                   p["sentiment"]["score"]))
+def _now() -> str:
+    return datetime.now().isoformat(timespec="seconds")
 
 
-def update_actuals(ihsg: pd.DataFrame):
+def log_prediction(p: dict, source: str = "live"):
+    """Save (or refresh) the estimate for one session. A 'live' estimate always wins over a
+    'backfill' one; a backfill never overwrites an estimate that was made live."""
     with _db() as c:
-        for td, pc in c.execute("SELECT target_date, prev_close FROM predictions WHERE actual_open IS NULL").fetchall():
-            ts = pd.Timestamp(td)
-            if ts in ihsg.index:
-                o = float(ihsg.at[ts, "Open"])
-                c.execute("UPDATE predictions SET actual_open=?, actual_y=? WHERE target_date=?", (o, o / pc - 1, td))
+        old = c.rows("SELECT source FROM predictions WHERE target_date=? AND model=?", (p["target_date"], p["model"]))
+        if old and source == "backfill" and old[0]["source"] != "backfill":
+            return
+        c.run("""INSERT INTO predictions (target_date, model, created_at, prev_close, y_hat, open_hat,
+                 lower_open, upper_open, direction, sentiment, source, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                 ON CONFLICT(target_date, model) DO UPDATE SET created_at=excluded.created_at,
+                 prev_close=excluded.prev_close, y_hat=excluded.y_hat, open_hat=excluded.open_hat,
+                 lower_open=excluded.lower_open, upper_open=excluded.upper_open,
+                 direction=excluded.direction, sentiment=excluded.sentiment, source=excluded.source,
+                 updated_at=excluded.updated_at""",
+              (p["target_date"], p["model"], _now(), float(p["prev_close"]), float(p["y_hat"]), float(p["open_hat"]),
+               float(p["lower_open"]), float(p["upper_open"]), p["direction"], float(p["sentiment"]["score"]),
+               source, _now()))
+
+
+def update_actuals(ihsg: pd.DataFrame) -> int:
+    """Fill in the real opening price once the session has traded. A reported open that is practically
+    equal to the previous close (<= FLAG_TOL, stale Yahoo data) is stored but marked as flagged, and is
+    left out of the error statistics, exactly like the flagged days in configuration A."""
+    n = 0
+    with _db() as c:
+        for r in c.rows("SELECT target_date, model, prev_close FROM predictions WHERE actual_open IS NULL"):
+            ts = pd.Timestamp(r["target_date"])
+            if ts in ihsg.index and pd.notna(ihsg.at[ts, "Open"]):
+                o, pc = float(ihsg.at[ts, "Open"]), float(r["prev_close"])
+                flagged = int(abs(o - pc) <= core.FLAG_TOL * pc)
+                c.run("UPDATE predictions SET actual_open=?, actual_y=?, actual_flagged=?, updated_at=? "
+                      "WHERE target_date=? AND model=?", (o, o / pc - 1, flagged, _now(), r["target_date"], r["model"]))
+                n += 1
+    return n
+
+
+def logged_dates(model: str) -> set[str]:
+    with _db() as c:
+        return {r["target_date"] for r in c.rows("SELECT target_date FROM predictions WHERE model=?", (model,))}
 
 
 def read_log() -> list[dict]:
     with _db() as c:
-        df = pd.read_sql_query("SELECT * FROM predictions ORDER BY target_date DESC", c)
-    return clean_json(df.to_dict(orient="records"))
+        rows = c.rows("SELECT * FROM predictions ORDER BY target_date DESC")
+    return clean_json(rows)
+
+
+def summarise_log(rows: list[dict]) -> dict:
+    """Error statistics of the logged estimates whose real open is known and not flagged."""
+    done = [r for r in rows if r.get("actual_open") is not None and not r.get("actual_flagged")]
+    if not done:
+        return {"n_done": 0, "n_pending": sum(r.get("actual_open") is None for r in rows),
+                "n_flagged": sum(bool(r.get("actual_flagged")) for r in rows)}
+    err = np.array([r["actual_open"] - r["open_hat"] for r in done], float)
+    nz = [r for r in done if r["actual_y"] != 0]
+    return clean_json({
+        "n_done": len(done),
+        "n_pending": sum(r.get("actual_open") is None for r in rows),
+        "n_flagged": sum(bool(r.get("actual_flagged")) for r in rows),
+        "mae_points": float(np.mean(np.abs(err))),
+        "mae_pp": float(np.mean([abs(r["actual_y"] - r["y_hat"]) for r in done]) * 100),
+        "direction_hit": float(np.mean([np.sign(r["actual_y"]) == np.sign(r["y_hat"]) for r in nz])) if nz else None,
+        "inside_95": float(np.mean([r["lower_open"] <= r["actual_open"] <= r["upper_open"] for r in done])),
+    })
