@@ -32,7 +32,10 @@ def _sync_in_background():
 
     def job():
         try:
-            log.info("history sync: %s", STATE["store"].sync_history())
+            # IHSG_BACKFILL_DAYS: how far back missing sessions are filled in (default 30 days;
+            # set e.g. 300 once to fill the whole period after the training data, then remove it)
+            days = int(os.environ.get("IHSG_BACKFILL_DAYS", "30"))
+            log.info("history sync: %s", STATE["store"].sync_history(days))
         except Exception:  # noqa: BLE001 - no internet / Yahoo down: try again next time
             log.warning("history sync failed\n%s", traceback.format_exc())
     if "store" in STATE and os.environ.get("IHSG_SYNC_ON_START", "1") != "0":
@@ -169,7 +172,7 @@ def history():
 
 
 @app.post("/api/history/sync")
-def history_sync(request: Request, max_days: int = Query(14, ge=1, le=60)):
+def history_sync(request: Request, max_days: int = Query(30, ge=1, le=400)):
     """Fill in real opening prices and backfill missed sessions (called by the scheduled job).
     If IHSG_SYNC_TOKEN is set, the request must carry the header  X-Sync-Token: <token>."""
     token = os.environ.get("IHSG_SYNC_TOKEN")

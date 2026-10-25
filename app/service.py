@@ -133,12 +133,37 @@ class Store:
         self.champion = self.meta["champion"] if self.meta["champion"] in self.models else next(iter(self.models))
         data_dir = self.dir / "data" if (self.dir / "data").exists() else self.dir
         try:
-            self.frames = core.load_from_csv(data_dir)
+            csv_frames = core.load_from_csv(data_dir)
         except FileNotFoundError as e:
             raise ArtifactsMissing(f"Price CSV files not found in {self.dir / 'data'}. {e}") from e
+        # The CSVs end where the dataset was downloaded. Every day after that is downloaded by the
+        # sync job and kept in the database (table `prices`), so a restart does not lose those days.
+        self.csv_last = {k: (v.index.max() if len(v) else pd.Timestamp("1900-01-01")) for k, v in csv_frames.items()}
+        try:
+            stored = load_prices()
+        except Exception as e:  # noqa: BLE001 - database unreachable: serve the CSV history only
+            stored, self.price_db_error = {}, f"{type(e).__name__}: {e}"
+        else:
+            self.price_db_error = None
+        self.frames = {k: merge_prices(v, stored.get(k), self.csv_last[k]) for k, v in csv_frames.items()}
+        self._rebuild()
+
+    def _rebuild(self):
+        """Recompute everything derived from self.frames (after loading or after new prices)."""
         self.cleaned, _ = core.clean_all(self.frames)
         self.dataset = core.build_dataset(self.cleaned)
         self._replay_cache: dict[tuple[str, str], dict] = {}
+
+    def _absorb(self, frames: dict):
+        """Take freshly downloaded prices: keep every day after the CSV end in the database and use the
+        merged history from now on (replay dates, analogs, history). Caller holds self._lock."""
+        try:
+            save_prices(frames, self.csv_last)
+            self.price_db_error = None
+        except Exception as e:  # noqa: BLE001 - still use the prices in memory
+            self.price_db_error = f"{type(e).__name__}: {e}"
+        self.frames = frames
+        self._rebuild()
 
     def report(self, name: str) -> pd.DataFrame | None:
         p = self.dir / "reports" / name
@@ -167,6 +192,8 @@ class Store:
             "best_params": self.meta.get("best_params"),
             "ensemble": self.meta.get("ensemble"),
             "data_first": ih.min(), "data_last": ih.max(),
+            "csv_last": self.csv_last.get("ihsg"),
+            "price_db_error": self.price_db_error,
             "replay_min": ih[40] if len(ih) > 40 else ih.min(),
             "replay_max": ih.max() + pd.Timedelta(days=7),
             "features": [{"key": f, "label": core.FEATURE_LABELS[f],
@@ -246,12 +273,13 @@ class Store:
             frames = core.refresh_with_yfinance(self.frames)
             # live_fallback exists only in newer versions of ihsg_core.py; pass it when supported
             extra = {"live_fallback": True} if "live_fallback" in inspect.signature(core.predict_for_date).parameters else {}
+            self._absorb(frames)
             p = core.predict_for_date(frames, core.next_session_date(), m, self.meta, name, **extra)
             out = self._format(p, "live")
             out["fetched_at"] = datetime.now().isoformat(timespec="seconds")
             self._live_cache[name] = (time.time(), out)
             log_prediction(out, source="live")
-            update_actuals(core.clean_all(frames)[0]["ihsg"])
+            update_actuals(self.cleaned["ihsg"])
         return out
 
     # ------------------------------------------------------------- simulate
@@ -326,7 +354,7 @@ class Store:
         return out
 
     # --------------------------------------------------------- history sync
-    def sync_history(self, max_days: int = 14) -> dict:
+    def sync_history(self, max_days: int = 30) -> dict:
         """Keep the forecast log complete without anyone opening the website:
         1. download the latest prices and fill in the real open of every logged session that has traded;
         2. backfill: an IHSG session of the last `max_days` days that has no logged estimate (the server
@@ -336,7 +364,8 @@ class Store:
         name, m = self._model(None)
         with self._lock:
             frames = core.refresh_with_yfinance(self.frames)
-            ihsg = core.clean_all(frames)[0]["ihsg"]
+            self._absorb(frames)
+            ihsg = self.cleaned["ihsg"]
             fit_end = pd.Timestamp(core.SPLITS["test" if self.meta.get("deploy_refit") else "val"][1])
             since = max(pd.Timestamp.today().normalize() - pd.Timedelta(days=max_days), fit_end + pd.Timedelta(days=1))
             have = logged_dates(name)
@@ -352,8 +381,12 @@ class Store:
                 except Exception as e:  # noqa: BLE001 - one bad day must not stop the others
                     errors[key] = f"{type(e).__name__}: {e}"
             filled = update_actuals(ihsg)
+        recent = ihsg[ihsg.index >= since]
+        stale = recent.index[core.flag_open_eq_prev_close(ihsg).reindex(recent.index).fillna(False).astype(bool)]
         return {"backfilled": added, "actuals_filled": filled, "errors": errors,
-                "latest_ihsg_session": ihsg.index.max().strftime("%Y-%m-%d"), "synced_at": _now()}
+                "latest_ihsg_session": ihsg.index.max().strftime("%Y-%m-%d"),
+                "stale_opens": [d.strftime("%Y-%m-%d") for d in stale],
+                "price_db_error": self.price_db_error, "synced_at": _now()}
 
     # -------------------------------------------------------------- history
     def history(self) -> dict:
@@ -513,3 +546,58 @@ def summarise_log(rows: list[dict]) -> dict:
         "direction_hit": float(np.mean([np.sign(r["actual_y"]) == np.sign(r["y_hat"]) for r in nz])) if nz else None,
         "inside_95": float(np.mean([r["lower_open"] <= r["actual_open"] <= r["upper_open"] for r in done])),
     })
+
+
+# ---------------------------------------------------------------------------
+# Daily prices after the CSV end (same database as the forecast log)
+# ---------------------------------------------------------------------------
+_PRICE_SCHEMA = """CREATE TABLE IF NOT EXISTS prices (
+    instrument TEXT, date TEXT, open DOUBLE PRECISION, high DOUBLE PRECISION, low DOUBLE PRECISION,
+    close DOUBLE PRECISION, adj_close DOUBLE PRECISION, volume DOUBLE PRECISION, updated_at TEXT,
+    PRIMARY KEY (instrument, date))"""
+_PRICE_COLS = {"Open": "open", "High": "high", "Low": "low", "Close": "close", "Adj Close": "adj_close", "Volume": "volume"}
+
+
+def _num(v):
+    return None if v is None or (isinstance(v, float) and math.isnan(v)) or pd.isna(v) else float(v)
+
+
+def save_prices(frames: dict, after: dict) -> int:
+    """Upsert every row dated after the CSV end. Rows are re-written on each sync, so a bar that
+    Yahoo first published while the market was still open is corrected by the next sync."""
+    n = 0
+    with _db() as c:
+        c.run(_PRICE_SCHEMA)
+        for k, df in frames.items():
+            new = df[df.index > after.get(k, pd.Timestamp("1900-01-01"))]
+            for d, r in new.iterrows():
+                c.run("""INSERT INTO prices (instrument, date, open, high, low, close, adj_close, volume, updated_at)
+                         VALUES (?,?,?,?,?,?,?,?,?)
+                         ON CONFLICT(instrument, date) DO UPDATE SET open=excluded.open, high=excluded.high,
+                         low=excluded.low, close=excluded.close, adj_close=excluded.adj_close,
+                         volume=excluded.volume, updated_at=excluded.updated_at""",
+                      (k, d.strftime("%Y-%m-%d"), *(_num(r.get(col)) for col in _PRICE_COLS), _now()))
+                n += 1
+    return n
+
+
+def load_prices() -> dict:
+    with _db() as c:
+        c.run(_PRICE_SCHEMA)
+        rows = c.rows("SELECT * FROM prices ORDER BY instrument, date")
+    out = {}
+    for k in {r["instrument"] for r in rows}:
+        sub = [r for r in rows if r["instrument"] == k]
+        df = pd.DataFrame({col: [r[low] for r in sub] for col, low in _PRICE_COLS.items()},
+                          index=pd.DatetimeIndex([r["date"] for r in sub]), dtype=float)
+        df.index.name = "Date"
+        out[k] = df
+    return out
+
+
+def merge_prices(csv: pd.DataFrame, stored: pd.DataFrame | None, csv_last: pd.Timestamp) -> pd.DataFrame:
+    """CSV history + stored days after the CSV end (the CSV wins for any date it contains)."""
+    if stored is None or stored.empty:
+        return csv
+    extra = stored[stored.index > csv_last].reindex(columns=csv.columns)
+    return pd.concat([csv, extra]).sort_index()
